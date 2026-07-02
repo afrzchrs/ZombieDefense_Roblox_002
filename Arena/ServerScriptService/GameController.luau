@@ -1,4 +1,3 @@
--- Referensi Servis
 local ServerStorage = game:GetService("ServerStorage")
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -9,12 +8,10 @@ local Debris = game:GetService("Debris")
 local eventGameOver = ReplicatedStorage:WaitForChild("EventGameOver")
 local respawnEvent = ReplicatedStorage:WaitForChild("RespawnTimerEvent")
 
--- Panggil wadah data yang akan dibaca oleh UI
 local dataSisaZombie = ReplicatedStorage:WaitForChild("SisaZombie")
 
 Players.CharacterAutoLoads = false
 
--- Referensi Objek
 local base = workspace:WaitForChild("BaseTarget")
 local baseHpValue = base:WaitForChild("HP")
 local safeRadiusValue = base:WaitForChild("SafeRadius")
@@ -31,9 +28,8 @@ local isGameOver = false
 local INTERMISSION_TIME = 15
 local uang = 0
 
---local spawnRadiusMin = 50 
-local spawnRadiusMax = 400-- Contoh total zombie
-local BATCH_SIZE = 20            -- Berapa zombie yang keluar bersamaan dalam 1 kloter?
+local spawnRadiusMax = 400
+local BATCH_SIZE = 20            -
 local BATCH_DELAY = 3
 
 local skipEvent = ReplicatedStorage:WaitForChild("SkipWaveEvent")
@@ -45,13 +41,11 @@ local BaseStatus = ReplicatedStorage:WaitForChild("BaseStatus")
 
 local isSkipped = false
 
--- Menangkap sinyal dari pemain yang klik tombol
 skipEvent.OnServerEvent:Connect(function(player)
 	isSkipped = true
 	print(player.Name .. " telah menekan Skip Wave!")
 end)
 
--- Fungsi ini dibuat modular agar bisa dipanggil berulang kali
 local BASE_KILL_REWARD = 10
 local WAVE_MULTIPLIER = 0.5
 
@@ -59,17 +53,12 @@ local function hitungDanBerikanHadiah(p, finalWave)
 	local killValue = 0
 	local totalHadiah = 0
 
-	-- 1. Ambil data Kill (Jika ada)
 	local leaderstats = p:FindFirstChild("leaderstats")
 	if leaderstats and leaderstats:FindFirstChild("Kill") then
 		killValue = leaderstats.Kill.Value
-		leaderstats.Kill.Value = 0 -- Langsung reset agar tidak double-claim
+		leaderstats.Kill.Value = 0 
 	end
 
-	-- 2. Hitung Matematikanya
-	totalHadiah = math.floor((killValue * BASE_KILL_REWARD) * (1 + (finalWave * WAVE_MULTIPLIER)))
-
-	-- 3. Masukkan uangnya (Jika LobbyData ada)
 	local lobbyData = p:FindFirstChild("LobbyData")
 	if lobbyData and lobbyData:FindFirstChild("Kredit") then
 		lobbyData.Kredit.Value = lobbyData.Kredit.Value + totalHadiah
@@ -77,23 +66,15 @@ local function hitungDanBerikanHadiah(p, finalWave)
 	else
 		warn("[WARNING] Folder LobbyData belum ada untuk " .. p.Name .. ", tapi UI Game Over akan tetap dimunculkan.")
 	end
-	
-	-- 4. PANGGIL UI: Diletakkan di luar pengecekan agar PASTI tereksekusi!
+
 	eventGameOver:FireClient(p, killValue, finalWave, totalHadiah)
 end
 
-
--- ==========================================
--- 2. SISTEM KEMATIAN, RESPAWN & GAME OVER
--- ==========================================
 local function checkGameOver()
-	-- Jika game sudah over, jangan jalankan lagi
 	if isGameOver then return end 
 
-	-- Syarat 1: Base harus hancur (HP <= 0). Jika belum hancur, batalkan.
 	if baseHpValue.Value > 0 then return end 
 
-	-- Cek Syarat 2: Apakah masih ada player yang hidup?
 	local playersAlive = false
 	for _, p in ipairs(Players:GetPlayers()) do
 		if p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
@@ -102,35 +83,26 @@ local function checkGameOver()
 		end
 	end
 
-	-- Jika Syarat 1 & Syarat 2 terpenuhi (Base hancur DAN tidak ada yang hidup)
 	if not playersAlive then
 		isGameOver = true
 		gameStatus.Value = "GAME OVER! (Semua Player Mati & Base Hancur)"
 
-		-- Ambil wave terakhir
 		local waveTerakhir = currentWave
-		
-		-- Bagikan hadiah dan panggil UI
+
 		for _, p in ipairs(Players:GetPlayers()) do
 			hitungDanBerikanHadiah(p, waveTerakhir)
 		end
 	end
 end
 
--- CCTV Base: Mengecek setiap kali HP Base berkurang
 baseHpValue.Changed:Connect(function()
 	if baseHpValue.Value <= 0 then
 		checkGameOver()
 	end
 end)
 
--- ==========================================
--- DETEKSI PEMAIN KELUAR PAKSA
--- ==========================================
 Players.PlayerRemoving:Connect(function(player)
-	-- Jika game belum selesai tapi pemain memutuskan keluar (Rage Quit / DC)
 	if not isGameOver then
-		-- Ganti angka 5 ini dengan variabel Wave aktual yang sedang berjalan di gamemu
 		local waveSaatIni = 5 
 		hitungDanBerikanHadiah(player, waveSaatIni)
 	end
@@ -138,7 +110,7 @@ end)
 
 
 local function handlePlayerDeath(player)
-	-- Terapkan kembali Bonus HP jika pemain pernah membelinya
+
 	local dataHealth = player:FindFirstChild("DataHealth")
 	if dataHealth then
 		local humanoid = player.Character:FindFirstChild("Humanoid")
@@ -156,7 +128,7 @@ local function handlePlayerDeath(player)
 		return 
 	end
 
-	--JIKA BELUM GAME OVER, LAKUKAN RESPAWN NORMAL
+
 	local respawnTime = 1 + currentWave
 	respawnEvent:FireClient(player, respawnTime) -- Memunculkan DeathUI
 	gameStatus.Value = player.Name .. " MATI! (" .. respawnTime .. "s)"
@@ -170,11 +142,8 @@ local function handlePlayerDeath(player)
 	end
 end
 
--- ==========================================
--- 3. SETUP PEMAIN & ANTI-RACE CONDITION
--- ==========================================
 local function setupPlayer(player)
-	-- Buat StringValue tak terlihat di dalam player untuk menyimpan data senjata aktif
+
 	local statusSenjata = Instance.new("StringValue")
 	statusSenjata.Name = "SenjataSaatIni"
 	statusSenjata.Value = "Pistol"
