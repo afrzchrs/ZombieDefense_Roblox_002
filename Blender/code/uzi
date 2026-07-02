@@ -1,0 +1,209 @@
+import bpy
+import math
+
+# ==========================================
+# 1. SETUP & SCENE ORGANIZATION
+# ==========================================
+bpy.ops.object.select_all(action='SELECT')
+bpy.ops.object.delete(use_global=False)
+
+collection_name = "SMG_Uzi_Detailed"
+if collection_name in bpy.data.collections:
+    bpy.data.collections.remove(bpy.data.collections[collection_name])
+main_coll = bpy.data.collections.new(collection_name)
+bpy.context.scene.collection.children.link(main_coll)
+
+cutter_coll = bpy.data.collections.new("Cutters_Hidden")
+bpy.context.scene.collection.children.link(cutter_coll)
+cutter_coll.hide_viewport = True
+cutter_coll.hide_render = True
+
+layer_collection = bpy.context.view_layer.layer_collection.children[collection_name]
+bpy.context.view_layer.active_layer_collection = layer_collection
+
+# ==========================================
+# 2. MATERIAL CREATION
+# ==========================================
+def create_material(name, color, metallic, roughness):
+    mat = bpy.data.materials.get(name)
+    if mat is None:
+        mat = bpy.data.materials.new(name=name)
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes.get('Principled BSDF')
+    if bsdf:
+        bsdf.inputs['Base Color'].default_value = color
+        bsdf.inputs['Metallic'].default_value = metallic
+        bsdf.inputs['Roughness'].default_value = roughness
+    return mat
+
+mat_gunmetal = create_material("Gunmetal", (0.08, 0.08, 0.085, 1.0), 0.85, 0.6)
+mat_polymer  = create_material("Polymer", (0.02, 0.02, 0.02, 1.0), 0.1, 0.85)
+mat_silver   = create_material("SilverBolt", (0.6, 0.6, 0.6, 1.0), 1.0, 0.3)
+
+# ==========================================
+# 3. HELPER FUNCTIONS
+# ==========================================
+def select_only(obj):
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+
+def add_cube(name, scale, loc, mat):
+    bpy.ops.mesh.primitive_cube_add(size=1, location=loc)
+    obj = bpy.context.active_object
+    obj.name = name
+    obj.scale = scale
+    if mat: obj.data.materials.append(mat)
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    return obj
+
+def add_cylinder(name, radius, depth, verts, loc, rot, mat):
+    bpy.ops.mesh.primitive_cylinder_add(vertices=verts, radius=radius, depth=depth, location=loc, rotation=rot)
+    obj = bpy.context.active_object
+    obj.name = name
+    if mat: obj.data.materials.append(mat)
+    return obj
+
+def apply_bevel(obj, width=0.002, segments=2):
+    mod = obj.modifiers.new(name="Bevel", type='BEVEL')
+    mod.width = width
+    mod.segments = segments
+    mod.limit_method = 'ANGLE'
+    mod.angle_limit = 0.523599 
+
+def add_boolean(target, cutter, operation='DIFFERENCE'):
+    mod = target.modifiers.new(name="Bool", type='BOOLEAN')
+    mod.object = cutter
+    mod.operation = operation
+    # PERBAIKAN: Menggunakan 'EXACT' agar kompatibel dengan Blender 4.x
+    mod.solver = 'EXACT' 
+
+# ==========================================
+# 4. BUILDING WEAPON PARTS
+# ==========================================
+
+# --- 1. RECEIVER (BODI UTAMA) & DETAIL ---
+rec_lower = add_cube("Rec_Lower", (0.038, 0.24, 0.05), (0, 0, 0), mat_gunmetal)
+rec_upper = add_cube("Rec_Upper", (0.034, 0.24, 0.035), (0, 0, 0.042), mat_gunmetal)
+
+# Ejection Port (Lubang buang selongsong)
+port_cutter = add_cube("Port_Cutter", (0.02, 0.06, 0.025), (0.015, 0.02, 0.042), None)
+cutter_coll.objects.link(port_cutter)
+main_coll.objects.unlink(port_cutter)
+add_boolean(rec_upper, port_cutter)
+
+# Bolt di dalam Ejection Port (Berwarna Silver)
+bolt_inner = add_cube("Bolt_Inner", (0.015, 0.055, 0.02), (0.005, 0.02, 0.042), mat_silver)
+
+# Garis Stamped Ribs (Tekstur garis timbul di sisi bodi)
+ribs = add_cube("Rec_Ribs", (0.04, 0.12, 0.003), (0, -0.05, 0.045), mat_gunmetal)
+rib_arr = ribs.modifiers.new(name="RibArray", type='ARRAY')
+rib_arr.use_relative_offset = False
+rib_arr.use_constant_offset = True
+rib_arr.constant_offset_displace = (0, 0, 0.008)
+rib_arr.count = 3
+
+# Pin/Baut Silinder di bodi
+pin_f = add_cylinder("Pin_F", 0.004, 0.042, 12, (0, 0.08, 0.01), (0, math.pi/2, 0), mat_polymer)
+pin_b = add_cylinder("Pin_B", 0.004, 0.042, 12, (0, -0.08, 0.01), (0, math.pi/2, 0), mat_polymer)
+
+
+# --- 2. BARREL & BARREL NUT ---
+# Barrel nut oktagonal (Segi delapan)
+barrel_nut = add_cylinder("Barrel_Nut", 0.018, 0.03, 8, (0, 0.135, 0.015), (math.pi/2, 0, 0), mat_polymer)
+# Laras utama
+barrel = add_cylinder("Barrel", 0.008, 0.15, 16, (0, 0.22, 0.015), (math.pi/2, 0, 0), mat_gunmetal)
+# Ujung Laras (Muzzle Tip)
+muzzle = add_cylinder("Muzzle", 0.01, 0.02, 16, (0, 0.29, 0.015), (math.pi/2, 0, 0), mat_gunmetal)
+
+
+# --- 3. GRIP, GRIP PANELS, & MAGAZINE ---
+grip_core = add_cube("Grip_Core", (0.026, 0.045, 0.09), (0, -0.04, -0.06), mat_gunmetal)
+grip_core.rotation_euler = (-0.05, 0, 0) # Sedikit miring
+
+# Pelapis gagang kiri & kanan
+grip_panel = add_cube("Grip_Panel", (0.032, 0.04, 0.085), (0, -0.04, -0.06), mat_polymer)
+grip_panel.rotation_euler = (-0.05, 0, 0)
+apply_bevel(grip_panel, 0.003)
+
+# Grip Safety di belakang gagang
+grip_safety = add_cube("Grip_Safety", (0.012, 0.015, 0.06), (0, -0.065, -0.06), mat_polymer)
+grip_safety.rotation_euler = (-0.05, 0, 0)
+
+# Tombol rilis magasin
+mag_release = add_cube("Mag_Release", (0.034, 0.015, 0.01), (0, -0.025, -0.09), mat_silver)
+
+# Magasin Lurus
+magazine = add_cube("Magazine", (0.022, 0.035, 0.18), (0, -0.035, -0.15), mat_polymer)
+magazine.rotation_euler = (-0.05, 0, 0)
+mag_base = add_cube("Mag_Base", (0.024, 0.038, 0.01), (0, -0.026, -0.245), mat_gunmetal)
+mag_base.rotation_euler = (-0.05, 0, 0)
+
+
+# --- 4. TRIGGER SYSTEM ---
+trig_guard_b = add_cube("TrigGuard_B", (0.015, 0.06, 0.004), (0, -0.01, -0.035), mat_gunmetal)
+trig_guard_f = add_cube("TrigGuard_F", (0.015, 0.004, 0.03), (0, 0.02, -0.02), mat_gunmetal)
+# Trigger 2 bagian agar terlihat melengkung
+trig_1 = add_cube("Trigger_1", (0.006, 0.006, 0.015), (0, 0, -0.015), mat_silver)
+trig_1.rotation_euler = (-0.2, 0, 0)
+trig_2 = add_cube("Trigger_2", (0.006, 0.006, 0.01), (0, -0.003, -0.025), mat_silver)
+trig_2.rotation_euler = (0.2, 0, 0)
+
+
+# --- 5. TOP CHARGING HANDLE & SIGHTS ---
+charge_track = add_cube("Charge_Track", (0.008, 0.12, 0.004), (0, 0, 0.06), mat_silver)
+charge_base = add_cube("Charge_Base", (0.01, 0.03, 0.01), (0, 0, 0.065), mat_polymer)
+charge_knob = add_cylinder("Charge_Knob", 0.008, 0.02, 12, (0, 0, 0.075), (0, math.pi/2, 0), mat_polymer)
+
+# Rear Sight (Bidikan Belakang)
+rear_base = add_cube("Rear_Base", (0.025, 0.02, 0.025), (0, -0.11, 0.07), mat_gunmetal)
+rear_cut = add_cube("Rear_Cut", (0.015, 0.03, 0.02), (0, -0.11, 0.075), None)
+cutter_coll.objects.link(rear_cut)
+main_coll.objects.unlink(rear_cut)
+add_boolean(rear_base, rear_cut)
+
+# Front Sight (Bidikan Depan)
+front_base = add_cube("Front_Base", (0.02, 0.015, 0.025), (0, 0.11, 0.068), mat_gunmetal)
+front_cut = add_cube("Front_Cut", (0.012, 0.02, 0.02), (0, 0.11, 0.073), None)
+cutter_coll.objects.link(front_cut)
+main_coll.objects.unlink(front_cut)
+add_boolean(front_base, front_cut)
+front_post = add_cylinder("Front_Post", 0.002, 0.015, 8, (0, 0.11, 0.068), (0, 0, 0), mat_silver)
+
+
+# --- 6. FOLDING STOCK (DETAIL STAMPED METAL) ---
+stock_hinge = add_cube("Stock_Hinge", (0.025, 0.02, 0.04), (0, -0.13, 0.015), mat_polymer)
+
+stock_arm_L = add_cube("Stock_Arm_L", (0.004, 0.14, 0.015), (0.012, -0.20, -0.01), mat_gunmetal)
+stock_arm_L.rotation_euler = (-0.15, 0, 0)
+stock_arm_R = add_cube("Stock_Arm_R", (0.004, 0.14, 0.015), (-0.012, -0.20, -0.01), mat_gunmetal)
+stock_arm_R.rotation_euler = (-0.15, 0, 0)
+
+# Memberi lubang pada tiang stock (Weight reduction cuts)
+stock_cut = add_cylinder("Stock_Arm_Cut", 0.004, 0.05, 8, (0, -0.18, 0.0), (0, math.pi/2, 0), None)
+cutter_coll.objects.link(stock_cut)
+main_coll.objects.unlink(stock_cut)
+stock_arr = stock_cut.modifiers.new(name="StockArr", type='ARRAY')
+stock_arr.use_relative_offset = False
+stock_arr.use_constant_offset = True
+stock_arr.constant_offset_displace = (0, -0.025, -0.004)
+stock_arr.count = 3
+add_boolean(stock_arm_L, stock_cut)
+add_boolean(stock_arm_R, stock_cut)
+
+stock_butt = add_cube("Stock_Butt", (0.024, 0.012, 0.1), (0, -0.27, -0.04), mat_gunmetal)
+apply_bevel(stock_butt, 0.003)
+
+
+# ==========================================
+# FINAL POLISH & CLEANUP
+# ==========================================
+bpy.ops.object.select_all(action='SELECT')
+for obj in cutter_coll.objects:
+    obj.select_set(False)
+
+bpy.context.scene.cursor.location = (0.0, 0.0, 0.0)
+bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
+bpy.ops.object.select_all(action='DESELECT')
+
+print("SUCCESS: SMG bergaya Uzi dengan detail tingkat lanjut berhasil dibuat!")

@@ -1,0 +1,1 @@
+Permisi mohon maaf untuk file fbx asset uzi versi clean dan sudah berwarna corrupt, oleh karena itu saya menggunakan versi awal sebelum di cleanup dan diwarnai

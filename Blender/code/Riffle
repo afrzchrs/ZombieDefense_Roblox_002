@@ -1,0 +1,236 @@
+import bpy
+import math
+
+# ==========================================
+# 1. SETUP & SCENE ORGANIZATION
+# ==========================================
+
+# Bersihkan scene dari semua object mesh yang ada
+bpy.ops.object.select_all(action='SELECT')
+bpy.ops.object.delete(use_global=False)
+
+# Buat Collection Utama
+collection_name = "M416_LowPoly"
+if collection_name in bpy.data.collections:
+    bpy.data.collections.remove(bpy.data.collections[collection_name])
+main_coll = bpy.data.collections.new(collection_name)
+bpy.context.scene.collection.children.link(main_coll)
+
+# Buat Collection tersembunyi untuk Boolean Cutters
+cutter_coll = bpy.data.collections.new("Cutters_Hidden")
+bpy.context.scene.collection.children.link(cutter_coll)
+cutter_coll.hide_viewport = True
+cutter_coll.hide_render = True
+
+# Jadikan M416_LowPoly sebagai active collection
+layer_collection = bpy.context.view_layer.layer_collection.children[collection_name]
+bpy.context.view_layer.active_layer_collection = layer_collection
+
+# ==========================================
+# 2. MATERIAL CREATION
+# ==========================================
+
+def create_material(name, color, metallic, roughness, transmission=0.0, ior=1.45):
+    mat = bpy.data.materials.get(name)
+    if mat is None:
+        mat = bpy.data.materials.new(name=name)
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes.get('Principled BSDF')
+    if bsdf:
+        bsdf.inputs['Base Color'].default_value = color
+        bsdf.inputs['Metallic'].default_value = metallic
+        bsdf.inputs['Roughness'].default_value = roughness
+        if transmission > 0.0:
+            if 'Transmission Weight' in bsdf.inputs:
+                bsdf.inputs['Transmission Weight'].default_value = transmission
+            else:
+                bsdf.inputs['Transmission'].default_value = transmission
+                
+            bsdf.inputs['IOR'].default_value = ior
+            mat.blend_method = 'BLEND'
+    return mat
+
+mat_gunmetal = create_material("Gunmetal_Material", (0.08, 0.08, 0.08, 1.0), 0.9, 0.65)
+mat_polymer = create_material("Polymer_Material", (0.12, 0.12, 0.12, 1.0), 0.0, 0.9)
+mat_glass = create_material("Glass_Material", (0.5, 0.8, 0.9, 1.0), 0.1, 0.05, 1.0, 1.45)
+
+# ==========================================
+# 3. HELPER FUNCTIONS
+# ==========================================
+
+def select_only(obj):
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+
+def add_cube(name, scale, loc, mat):
+    bpy.ops.mesh.primitive_cube_add(size=1, location=loc)
+    obj = bpy.context.active_object
+    obj.name = name
+    obj.scale = scale
+    obj.data.materials.append(mat)
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    return obj
+
+def add_cylinder(name, radius, depth, verts, loc, rot, mat):
+    bpy.ops.mesh.primitive_cylinder_add(vertices=verts, radius=radius, depth=depth, location=loc, rotation=rot)
+    obj = bpy.context.active_object
+    obj.name = name
+    obj.data.materials.append(mat)
+    return obj
+
+def apply_bevel(obj, width=0.002, segments=2):
+    mod = obj.modifiers.new(name="Bevel", type='BEVEL')
+    mod.width = width
+    mod.segments = segments
+    mod.limit_method = 'ANGLE'
+    mod.angle_limit = 0.523599 # 30 degrees
+
+def add_boolean(target, cutter, operation='DIFFERENCE'):
+    mod = target.modifiers.new(name="Bool", type='BOOLEAN')
+    mod.object = cutter
+    mod.operation = operation
+
+# ==========================================
+# 4. BUILDING WEAPON PARTS
+# ==========================================
+
+# 1. LOWER RECEIVER (DIPERBAIKI)
+# Bodi bawah diperpanjang (Y=0.18) dan digeser maju agar menutupi celah di atas magwell
+lower_base = add_cube("LowerReceiver", (0.03, 0.20, 0.04), (0, -0.01, 0.02), mat_polymer)
+
+# Magwell disejajarkan dengan posisi Magazine dan dinaikkan agar menyatu
+magwell = add_cube("Magwell", (0.032, 0.055, 0.05), (0, 0.055, -0.02), mat_polymer)
+magwell_cut = add_cube("MagwellCut", (0.026, 0.045, 0.08), (0, 0.055, -0.01), mat_polymer)
+add_boolean(magwell, magwell_cut, 'DIFFERENCE')
+
+# Menggabungkan part
+select_only(lower_base)
+magwell.select_set(True)
+bpy.context.view_layer.objects.active = lower_base
+bpy.ops.object.join()
+apply_bevel(lower_base, 0.0015)
+
+# 2. UPPER RECEIVER
+upper_rec = add_cube("UpperReceiver", (0.032, 0.16, 0.035), (0, -0.02, 0.055), mat_gunmetal)
+apply_bevel(upper_rec, 0.002)
+
+# 4. HANDGUARD
+handguard = add_cylinder("Handguard", 0.025, 0.28, 8, (0, 0.20, 0.055), (math.pi/2, 0, 0), mat_polymer)
+apply_bevel(handguard, 0.002)
+
+# 5. HANDGUARD VENTILATION
+vent_base = add_cube("VentCutters", (0.015, 0.03, 0.06), (0, 0.10, 0.055), mat_polymer)
+cutter_coll.objects.link(vent_base)
+main_coll.objects.unlink(vent_base)
+vent_arr = vent_base.modifiers.new(name="VentArray", type='ARRAY')
+vent_arr.use_relative_offset = False
+vent_arr.use_constant_offset = True
+vent_arr.constant_offset_displace = (0, 0.045, 0)
+vent_arr.count = 5
+add_boolean(handguard, vent_base, 'DIFFERENCE')
+
+# 7. BARREL
+barrel = add_cylinder("Barrel", 0.008, 0.55, 12, (0, 0.25, 0.055), (math.pi/2, 0, 0), mat_gunmetal)
+
+# 8. BIRDCAGE FLASH HIDER
+flash_hider = add_cylinder("FlashHider", 0.011, 0.045, 12, (0, 0.50, 0.055), (math.pi/2, 0, 0), mat_gunmetal)
+fh_cutter = add_cube("FH_Cutter", (0.002, 0.03, 0.03), (0, 0.50, 0.055), mat_gunmetal)
+cutter_coll.objects.link(fh_cutter)
+main_coll.objects.unlink(fh_cutter)
+fh_arr = fh_cutter.modifiers.new(name="FH_Array", type='ARRAY')
+fh_arr.count = 4
+fh_arr.use_relative_offset = False
+fh_arr.use_object_offset = True
+bpy.ops.object.empty_add(type='PLAIN_AXES', location=(0, 0.50, 0.055), rotation=(0, math.pi/4, 0))
+fh_empty = bpy.context.active_object
+cutter_coll.objects.link(fh_empty)
+main_coll.objects.unlink(fh_empty)
+fh_arr.offset_object = fh_empty
+add_boolean(flash_hider, fh_cutter, 'DIFFERENCE')
+apply_bevel(flash_hider, 0.001)
+
+# 3 & 6. PICATINNY RAILS
+def create_rail(name, length_count, loc, rot):
+    tooth = add_cube(name, (0.021, 0.004, 0.005), loc, mat_gunmetal)
+    tooth.rotation_euler = rot
+    bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+    arr = tooth.modifiers.new(name="RailArray", type='ARRAY')
+    arr.use_relative_offset = False
+    arr.use_constant_offset = True
+    arr.constant_offset_displace = (0, 0.01, 0)
+    arr.count = length_count
+    return tooth
+
+TopRail = create_rail("TopRail", 42, (0, -0.08, 0.075), (0, 0, 0))
+BottomRail = create_rail("BottomRail", 26, (0, 0.08, 0.03), (0, 0, 0))
+LeftRail = create_rail("LeftRail", 26, (0.025, 0.08, 0.055), (0, 0, math.pi/2))
+RightRail = create_rail("RightRail", 26, (-0.025, 0.08, 0.055), (0, 0, math.pi/2))
+
+# 9. BUFFER TUBE
+buffer_tube = add_cylinder("BufferTube", 0.015, 0.18, 16, (0, -0.18, 0.045), (math.pi/2, 0, 0), mat_gunmetal)
+
+# 10. TELESCOPIC STOCK
+stock = add_cube("Stock", (0.035, 0.12, 0.10), (0, -0.26, 0.02), mat_polymer)
+stock_cut = add_cube("StockCut", (0.04, 0.08, 0.08), (0, -0.23, -0.01), mat_polymer)
+cutter_coll.objects.link(stock_cut)
+main_coll.objects.unlink(stock_cut)
+add_boolean(stock, stock_cut, 'DIFFERENCE')
+apply_bevel(stock, 0.003)
+
+# 11. STANAG MAGAZINE
+magazine = add_cube("Magazine", (0.024, 0.06, 0.12), (0, 0.055, -0.09), mat_polymer)
+magazine.rotation_euler = (-0.1, 0, 0)
+apply_bevel(magazine, 0.002)
+
+# 12. PISTOL GRIP
+pistol_grip = add_cube("PistolGrip", (0.028, 0.045, 0.1), (0, -0.08, -0.035), mat_polymer)
+pistol_grip.rotation_euler = (-0.35, 0, 0)
+apply_bevel(pistol_grip, 0.004)
+
+# 13. HOLOGRAPHIC SIGHT
+holo_base = add_cube("HoloSight_Base", (0.032, 0.08, 0.02), (0, 0.06, 0.085), mat_gunmetal)
+holo_frame = add_cube("HoloSight_Frame", (0.028, 0.05, 0.04), (0, 0.06, 0.11), mat_gunmetal)
+holo_frame_cut = add_cube("HoloCut", (0.024, 0.06, 0.035), (0, 0.06, 0.11), mat_gunmetal)
+cutter_coll.objects.link(holo_frame_cut)
+main_coll.objects.unlink(holo_frame_cut)
+add_boolean(holo_frame, holo_frame_cut, 'DIFFERENCE')
+
+holo_glass = add_cube("HoloSight_Glass", (0.022, 0.002, 0.03), (0, 0.06, 0.11), mat_glass)
+
+select_only(holo_base)
+holo_frame.select_set(True)
+holo_glass.select_set(True)
+bpy.context.view_layer.objects.active = holo_base
+bpy.ops.object.join()
+holo_base.name = "HoloSight"
+
+# 14. VERTICAL FOREGRIP
+vert_grip = add_cylinder("VerticalForegrip", 0.015, 0.08, 12, (0, 0.20, -0.01), (0, 0, 0), mat_polymer)
+apply_bevel(vert_grip, 0.002)
+
+# 15. MILITARY-GRADE DETAILS
+trigger_guard = add_cube("TriggerGuard", (0.015, 0.06, 0.004), (0, -0.02, -0.02), mat_gunmetal)
+trigger_guard.rotation_euler = (-0.15, 0, 0)
+
+trigger = add_cube("Trigger", (0.008, 0.008, 0.02), (0, -0.03, -0.01), mat_gunmetal)
+trigger.rotation_euler = (-0.2, 0, 0)
+
+forward_assist = add_cylinder("ForwardAssist", 0.006, 0.02, 8, (-0.02, -0.06, 0.055), (0, math.pi/2, -math.pi/4), mat_gunmetal)
+charging_handle = add_cube("ChargingHandle", (0.04, 0.01, 0.01), (0, -0.10, 0.075), mat_gunmetal)
+bolt_cover = add_cube("BoltCover", (0.004, 0.05, 0.015), (-0.016, 0.02, 0.055), mat_gunmetal)
+selector = add_cylinder("SelectorSwitch", 0.004, 0.01, 8, (0.016, -0.05, 0.04), (0, math.pi/2, 0), mat_gunmetal)
+mag_release = add_cube("MagazineRelease", (0.005, 0.01, 0.01), (-0.016, 0.04, 0.04), mat_gunmetal)
+
+# ==========================================
+# FINAL POLISH
+# ==========================================
+bpy.ops.object.select_all(action='SELECT')
+for obj in cutter_coll.objects:
+    obj.select_set(False)
+
+bpy.context.scene.cursor.location = (0.0, 0.0, 0.0)
+bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
+bpy.ops.object.select_all(action='DESELECT')
+
+print("M416 Tactical Rifle Low-Poly Asset Berhasil Dibuat!")

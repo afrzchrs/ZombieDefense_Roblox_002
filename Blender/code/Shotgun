@@ -1,0 +1,223 @@
+# =============================================================================
+# SCRIPT GENERATOR: LOW-POLY PUMP-ACTION SHOTGUN FOR BLENDER 4.x (SEPARATED PARTS)
+# =============================================================================
+# Deskripsi: Script ini secara otomatis membuat model 3D Shotgun Pump-Action
+#            bergaya low-poly taktis/survival untuk game zombie defense.
+#            Setiap part dipisahkan menggunakan sistem Parenting ke Receiver.
+# =============================================================================
+
+import bpy
+import bmesh
+import math
+from mathutils import Matrix
+
+# =============================================================================
+# KONFIGURASI VARIABEL
+# =============================================================================
+STYLE_CHOICE = "WOOD"  # Ubah ke "POLYMER" untuk warna hitam taktis
+
+COLOR_METAL = (0.12, 0.12, 0.14, 1.0)       
+COLOR_WOOD = (0.22, 0.11, 0.05, 1.0)        
+COLOR_POLYMER = (0.04, 0.04, 0.05, 1.0)     
+
+# =============================================================================
+# FUNGSI HELPER & INISIALISASI
+# =============================================================================
+def reset_scene():
+    if bpy.context.object and bpy.context.object.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.delete(use_global=False)
+    
+    for mat in bpy.data.materials:
+        bpy.data.materials.remove(mat)
+
+def create_material(name, color, metallic, roughness):
+    mat = bpy.data.materials.new(name=name)
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    principled = nodes.get("Principled BSDF")
+    if principled:
+        principled.inputs['Base Color'].default_value = color
+        principled.inputs['Metallic'].default_value = metallic
+        principled.inputs['Roughness'].default_value = roughness
+    return mat
+
+def create_mesh_obj(name):
+    mesh = bpy.data.meshes.new(name)
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    return obj, mesh
+
+# =============================================================================
+# FUNGSI PEMBUATAN KOMPONEN SENJATA
+# =============================================================================
+def create_receiver(mat):
+    obj, mesh = create_mesh_obj("Receiver")
+    bm = bmesh.new()
+    
+    matrix_body = Matrix.Translation((0, 0, 0.02)) @ Matrix.Diagonal((0.07, 0.55, 0.11, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=matrix_body)
+    
+    bmesh.ops.bevel(bm, geom=bm.edges, offset=0.004, segments=1, affect='EDGES')
+    
+    matrix_port = Matrix.Translation((0.036, 0.05, 0.03)) @ Matrix.Diagonal((0.005, 0.14, 0.035, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=matrix_port)
+    
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mat)
+    return obj
+
+def create_stock(mat):
+    obj, mesh = create_mesh_obj("Stock")
+    bm = bmesh.new()
+    
+    matrix_grip = Matrix.Translation((0, -0.34, -0.02)) @ Matrix.Rotation(math.radians(-15), 4, 'X') @ Matrix.Diagonal((0.055, 0.13, 0.075, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=matrix_grip)
+    
+    matrix_stock = Matrix.Translation((0, -0.56, -0.06)) @ Matrix.Rotation(math.radians(-6), 4, 'X') @ Matrix.Diagonal((0.05, 0.32, 0.12, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=matrix_stock)
+    
+    matrix_pad = Matrix.Translation((0, -0.72, -0.08)) @ Matrix.Rotation(math.radians(-6), 4, 'X') @ Matrix.Diagonal((0.056, 0.03, 0.14, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=matrix_pad)
+    
+    bmesh.ops.bevel(bm, geom=bm.edges, offset=0.004, segments=1, affect='EDGES')
+    
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mat)
+    return obj
+
+def create_barrel(mat):
+    obj, mesh = create_mesh_obj("Barrel")
+    bm = bmesh.new()
+    
+    matrix_barrel = Matrix.Translation((0, 0.70, 0.055)) @ Matrix.Rotation(-math.pi/2, 4, 'X')
+    bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=24, radius1=0.016, radius2=0.016, depth=0.85, matrix=matrix_barrel)
+    
+    bmesh.ops.bevel(bm, geom=bm.edges, offset=0.002, segments=1, affect='EDGES')
+    
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mat)
+    return obj
+
+def create_magazine_tube(mat):
+    obj, mesh = create_mesh_obj("MagazineTube")
+    bm = bmesh.new()
+    
+    matrix_tube = Matrix.Translation((0, 0.635, 0.022)) @ Matrix.Rotation(-math.pi/2, 4, 'X')
+    bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=24, radius1=0.013, radius2=0.013, depth=0.72, matrix=matrix_tube)
+    
+    bmesh.ops.bevel(bm, geom=bm.edges, offset=0.002, segments=1, affect='EDGES')
+    
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mat)
+    return obj
+
+def create_pump_handle(mat):
+    obj, mesh = create_mesh_obj("PumpHandle")
+    bm = bmesh.new()
+    
+    start_y = 0.34
+    end_y = 0.60
+    num_ribs = 9
+    step = (end_y - start_y) / (num_ribs - 1)
+    
+    matrix_base = Matrix.Translation((0, 0.47, 0.022)) @ Matrix.Rotation(-math.pi/2, 4, 'X')
+    bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=24, radius1=0.019, radius2=0.019, depth=0.28, matrix=matrix_base)
+    
+    for i in range(num_ribs):
+        y_pos = start_y + i * step
+        matrix_rib = Matrix.Translation((0, y_pos, 0.022)) @ Matrix.Rotation(-math.pi/2, 4, 'X')
+        bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=24, radius1=0.023, radius2=0.023, depth=0.016, matrix=matrix_rib)
+        
+    bmesh.ops.bevel(bm, geom=bm.edges, offset=0.001, segments=1, affect='EDGES')
+    
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mat)
+    return obj
+
+def create_trigger_guard(mat):
+    obj, mesh = create_mesh_obj("TriggerGuard")
+    bm = bmesh.new()
+    
+    bmesh.ops.create_cube(bm, size=1.0, matrix=Matrix.Translation((0, -0.10, -0.075)) @ Matrix.Diagonal((0.014, 0.08, 0.006, 1.0)))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=Matrix.Translation((0, -0.06, -0.055)) @ Matrix.Diagonal((0.014, 0.006, 0.04, 1.0)))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=Matrix.Translation((0, -0.14, -0.055)) @ Matrix.Diagonal((0.014, 0.006, 0.04, 1.0)))
+    
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mat)
+    return obj
+
+def create_trigger(mat):
+    obj, mesh = create_mesh_obj("Trigger")
+    bm = bmesh.new()
+    
+    matrix_trigger = Matrix.Translation((0, -0.09, -0.055)) @ Matrix.Rotation(math.radians(22), 4, 'X') @ Matrix.Diagonal((0.006, 0.006, 0.024, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=matrix_trigger)
+    
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mat)
+    return obj
+
+def create_sights(mat):
+    obj, mesh = create_mesh_obj("Sights")
+    bm = bmesh.new()
+    
+    matrix_front = Matrix.Translation((0, 1.10, 0.078)) @ Matrix.Diagonal((0.006, 0.014, 0.014, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=matrix_front)
+    
+    matrix_rear_l = Matrix.Translation((0.008, -0.22, 0.082)) @ Matrix.Diagonal((0.005, 0.01, 0.01, 1.0))
+    matrix_rear_r = Matrix.Translation((-0.008, -0.22, 0.082)) @ Matrix.Diagonal((0.005, 0.01, 0.01, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=matrix_rear_l)
+    bmesh.ops.create_cube(bm, size=1.0, matrix=matrix_rear_r)
+    
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mat)
+    return obj
+
+# =============================================================================
+# MAIN EXECUTION THREAD
+# =============================================================================
+def main():
+    reset_scene()
+    
+    mat_metal = create_material("Mat_Metal", COLOR_METAL, 0.8, 0.3)
+    
+    if STYLE_CHOICE == "WOOD":
+        mat_furniture = create_material("Mat_Furniture", COLOR_WOOD, 0.0, 0.55)
+    else:
+        mat_furniture = create_material("Mat_Furniture", COLOR_POLYMER, 0.0, 0.7)
+        
+    # 1. Buat Receiver sebagai Parent
+    receiver_obj = create_receiver(mat_metal)
+    
+    # 2. Buat komponen lainnya
+    other_parts = []
+    other_parts.append(create_stock(mat_furniture))
+    other_parts.append(create_barrel(mat_metal))
+    other_parts.append(create_magazine_tube(mat_metal))
+    other_parts.append(create_pump_handle(mat_furniture))
+    other_parts.append(create_trigger_guard(mat_metal))
+    other_parts.append(create_trigger(mat_metal))
+    other_parts.append(create_sights(mat_metal))
+    
+    # 3. Parent semua komponen ke Receiver
+    for part in other_parts:
+        part.parent = receiver_obj
+    
+    # Set Receiver sebagai objek aktif
+    bpy.context.view_layer.objects.active = receiver_obj
+    receiver_obj.select_set(True)
+    
+    print("Sukses! Model 'Shotgun_PumpAction' bergaya Low-Poly berhasil dibuat (Part Terpisah).")
+
+if __name__ == "__main__":
+    main()

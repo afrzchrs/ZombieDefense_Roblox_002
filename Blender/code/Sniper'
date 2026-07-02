@@ -1,0 +1,357 @@
+# =============================================================================
+# SCRIPT GENERATOR: TACTICAL SCI-FI ASSAULT RIFLE FOR BLENDER 4.x (SEPARATED PARTS)
+# =============================================================================
+
+import bpy
+import bmesh
+import math
+from mathutils import Matrix
+
+# =============================================================================
+# FUNGSI HELPER UTAMA
+# =============================================================================
+def reset_scene():
+    if bpy.context.object and bpy.context.object.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.delete(use_global=False)
+    for mat in bpy.data.materials:
+        bpy.data.materials.remove(mat)
+
+def create_mesh_obj(name):
+    mesh = bpy.data.meshes.new(name)
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    return obj, mesh
+
+def apply_boolean_difference(target_obj, cutter_obj):
+    bpy.context.view_layer.objects.active = target_obj
+    target_obj.select_set(True)
+    mod = target_obj.modifiers.new(name="AutoBool", type='BOOLEAN')
+    mod.operation = 'DIFFERENCE'
+    mod.object = cutter_obj
+    mod.solver = 'EXACT'
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+    bpy.data.objects.remove(cutter_obj, do_unlink=True)
+
+def apply_materials():
+    mats = {}
+    
+    mat_matte = bpy.data.materials.new(name="Mat_Matte_Black")
+    mat_matte.use_nodes = True
+    bsdf_matte = mat_matte.node_tree.nodes.get("Principled BSDF")
+    bsdf_matte.inputs['Base Color'].default_value = (0.02, 0.02, 0.02, 1.0)
+    bsdf_matte.inputs['Metallic'].default_value = 0.4
+    bsdf_matte.inputs['Roughness'].default_value = 0.6
+    mats['matte'] = mat_matte
+    
+    mat_metal = bpy.data.materials.new(name="Mat_Dark_Metal")
+    mat_metal.use_nodes = True
+    bsdf_metal = mat_metal.node_tree.nodes.get("Principled BSDF")
+    bsdf_metal.inputs['Base Color'].default_value = (0.1, 0.1, 0.12, 1.0)
+    bsdf_metal.inputs['Metallic'].default_value = 0.9
+    bsdf_metal.inputs['Roughness'].default_value = 0.25
+    mats['metal'] = mat_metal
+    
+    mat_scope = bpy.data.materials.new(name="Mat_Scope")
+    mat_scope.use_nodes = True
+    bsdf_scope = mat_scope.node_tree.nodes.get("Principled BSDF")
+    bsdf_scope.inputs['Base Color'].default_value = (0.01, 0.01, 0.01, 1.0)
+    bsdf_scope.inputs['Metallic'].default_value = 0.5
+    bsdf_scope.inputs['Roughness'].default_value = 0.4
+    mats['scope'] = mat_scope
+    
+    mat_glow = bpy.data.materials.new(name="Mat_SciFi_Glow")
+    mat_glow.use_nodes = True
+    bsdf_glow = mat_glow.node_tree.nodes.get("Principled BSDF")
+    bsdf_glow.inputs['Base Color'].default_value = (0.0, 0.8, 1.0, 1.0)
+    if 'Emission Color' in bsdf_glow.inputs:
+        bsdf_glow.inputs['Emission Color'].default_value = (0.0, 0.8, 1.0, 1.0)
+        bsdf_glow.inputs['Emission Strength'].default_value = 2.5
+    mats['glow'] = mat_glow
+    
+    return mats
+
+# =============================================================================
+# FUNGSI PEMBUATAN KOMPONEN SENJATA
+# =============================================================================
+def create_receiver(mats):
+    obj, mesh = create_mesh_obj("Receiver")
+    bm = bmesh.new()
+    
+    # Body Utama (Diperpanjang agar menyatu dengan handguard & popor)
+    mat_body = Matrix.Translation((0, 0, 0)) @ Matrix.Diagonal((0.035, 0.26, 0.06, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_body)
+    
+    # Detail Panel Samping
+    mat_panel = Matrix.Translation((0.034, 0.02, 0)) @ Matrix.Diagonal((0.005, 0.12, 0.02, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_panel)
+    
+    bmesh.ops.bevel(bm, geom=bm.edges, offset=0.001, segments=2, affect='EDGES')
+    bm.to_mesh(mesh)
+    bm.free()
+    
+    obj.data.materials.append(mats['matte'])
+    obj.data.materials.append(mats['glow'])
+    for poly in obj.data.polygons:
+        if poly.center.x > 0.035:
+            poly.material_index = 1
+    return obj
+
+def create_rail(mats):
+    obj, mesh = create_mesh_obj("Rail")
+    bm = bmesh.new()
+    
+    # Rail Utama memanjang dari body ke handguard
+    mat_rail = Matrix.Translation((0, 0.12, 0.033)) @ Matrix.Diagonal((0.025, 0.52, 0.005, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_rail)
+    
+    for i in range(28):
+        y_pos = -0.12 + (i * 0.018)
+        mat_bump = Matrix.Translation((0, y_pos, 0.036)) @ Matrix.Diagonal((0.026, 0.006, 0.002, 1.0))
+        bmesh.ops.create_cube(bm, size=1.0, matrix=mat_bump)
+        
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mats['matte'])
+    return obj
+
+def create_handguard(mats):
+    hg_obj, hg_mesh = create_mesh_obj("Handguard")
+    bm_hg = bmesh.new()
+    
+    # Handguard ditarik mendekat ke body (overlap di Y=0.13)
+    mat_hg = Matrix.Translation((0, 0.26, 0)) @ Matrix.Diagonal((0.03, 0.28, 0.05, 1.0))
+    bmesh.ops.create_cube(bm_hg, size=1.0, matrix=mat_hg)
+    bmesh.ops.bevel(bm_hg, geom=bm_hg.edges, offset=0.004, segments=1, affect='EDGES')
+    bm_hg.to_mesh(hg_mesh)
+    bm_hg.free()
+    
+    cut_obj, cut_mesh = create_mesh_obj("Cutter_HG")
+    bm_cut = bmesh.new()
+    
+    for row_z in [-0.015, 0.015]:
+        for i in range(7):
+            y_pos = 0.16 + (i * 0.035)
+            mat_cyl = Matrix.Translation((0, y_pos, row_z)) @ Matrix.Rotation(math.pi/2, 4, 'Y')
+            bmesh.ops.create_cone(bm_cut, cap_ends=True, cap_tris=False, segments=16, 
+                                  radius1=0.007, radius2=0.007, depth=0.1, matrix=mat_cyl)
+    
+    bm_cut.to_mesh(cut_mesh)
+    bm_cut.free()
+    apply_boolean_difference(hg_obj, cut_obj)
+    hg_obj.data.materials.append(mats['matte'])
+    return hg_obj
+
+def create_barrel(mats):
+    obj, mesh = create_mesh_obj("Barrel")
+    bm = bmesh.new()
+    
+    # Laras tertanam jauh di dalam handguard dan body
+    mat_barrel = Matrix.Translation((0, 0.35, 0)) @ Matrix.Rotation(-math.pi/2, 4, 'X')
+    bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=24, 
+                          radius1=0.012, radius2=0.012, depth=0.6, matrix=mat_barrel)
+    
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mats['metal'])
+    return obj
+
+def create_muzzle_brake(mats):
+    mb_obj, mb_mesh = create_mesh_obj("MuzzleBrake")
+    bm_mb = bmesh.new()
+    
+    # Overlap dengan ujung laras
+    mat_mb = Matrix.Translation((0, 0.68, 0)) @ Matrix.Rotation(-math.pi/2, 4, 'X')
+    bmesh.ops.create_cone(bm_mb, cap_ends=True, cap_tris=False, segments=24, 
+                          radius1=0.016, radius2=0.016, depth=0.1, matrix=mat_mb)
+    bm_mb.to_mesh(mb_mesh)
+    bm_mb.free()
+    
+    cut_obj, cut_mesh = create_mesh_obj("Cutter_MB")
+    bm_cut = bmesh.new()
+    
+    mat_hole = Matrix.Translation((0, 0.7, 0)) @ Matrix.Rotation(-math.pi/2, 4, 'X')
+    bmesh.ops.create_cone(bm_cut, cap_ends=True, cap_tris=False, segments=16, 
+                          radius1=0.011, radius2=0.011, depth=0.08, matrix=mat_hole)
+                          
+    for i in range(4):
+        y_pos = 0.64 + (i * 0.02)
+        mat_slot = Matrix.Translation((0, y_pos, 0)) @ Matrix.Rotation(math.pi/2, 4, 'Y')
+        bmesh.ops.create_cone(bm_cut, cap_ends=True, cap_tris=False, segments=12, 
+                              radius1=0.005, radius2=0.005, depth=0.06, matrix=mat_slot)
+                              
+    bm_cut.to_mesh(cut_mesh)
+    bm_cut.free()
+    apply_boolean_difference(mb_obj, cut_obj)
+    mb_obj.data.materials.append(mats['metal'])
+    return mb_obj
+
+def create_magazine(mats):
+    obj, mesh = create_mesh_obj("Magazine")
+    bm = bmesh.new()
+    
+    shear_angle = math.radians(-10)
+    shear_matrix = Matrix((
+        (1.0, 0.0, 0.0, 0.0),
+        (0.0, 1.0, math.tan(shear_angle), 0.0),
+        (0.0, 0.0, 1.0, 0.0),
+        (0.0, 0.0, 0.0, 1.0)
+    ))
+    rot_matrix = Matrix.Rotation(math.radians(-5), 4, 'X')
+    scale_matrix = Matrix.Diagonal((0.015, 0.04, 0.14, 1.0))
+    trans_matrix = Matrix.Translation((0, 0.06, -0.10)) # Diangkat mendekati body
+    
+    mat_mag = trans_matrix @ rot_matrix @ shear_matrix @ scale_matrix
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_mag)
+    bmesh.ops.bevel(bm, geom=bm.edges, offset=0.002, segments=1, affect='EDGES')
+    
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mats['matte'])
+    return obj
+
+def create_grip(mats):
+    obj, mesh = create_mesh_obj("Grip")
+    bm = bmesh.new()
+    
+    # Ditempel tepat di bawah belakang receiver
+    mat_grip = Matrix.Translation((0, -0.09, -0.07)) @ Matrix.Rotation(math.radians(18), 4, 'X') @ Matrix.Diagonal((0.018, 0.035, 0.08, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_grip)
+    bmesh.ops.bevel(bm, geom=bm.edges, offset=0.004, segments=2, affect='EDGES')
+    
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mats['matte'])
+    return obj
+
+def create_trigger_guard(mats):
+    obj, mesh = create_mesh_obj("TriggerGuard")
+    bm = bmesh.new()
+    
+    mat_bot = Matrix.Translation((0, -0.03, -0.05)) @ Matrix.Diagonal((0.01, 0.04, 0.004, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_bot)
+    
+    mat_front = Matrix.Translation((0, 0.01, -0.04)) @ Matrix.Diagonal((0.01, 0.004, 0.02, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_front)
+    
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mats['metal'])
+    return obj
+
+def create_trigger(mats):
+    obj, mesh = create_mesh_obj("Trigger")
+    bm = bmesh.new()
+    
+    mat_trigger = Matrix.Translation((0, -0.04, -0.03)) @ Matrix.Rotation(math.radians(15), 4, 'X') @ Matrix.Diagonal((0.005, 0.005, 0.02, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_trigger)
+    
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mats['metal'])
+    return obj
+
+def create_stock(mats):
+    obj, mesh = create_mesh_obj("Stock")
+    bm = bmesh.new()
+    
+    # Buffer Tube ditanamkan menembus bagian belakang receiver
+    mat_tube = Matrix.Translation((0, -0.22, 0.01)) @ Matrix.Rotation(-math.pi/2, 4, 'X')
+    bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=16, 
+                          radius1=0.014, radius2=0.014, depth=0.22, matrix=mat_tube)
+    
+    for x_pos in [-0.02, 0.02]:
+        mat_frame = Matrix.Translation((x_pos, -0.25, -0.01)) @ Matrix.Rotation(-math.pi/2, 4, 'X')
+        bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=12, 
+                              radius1=0.006, radius2=0.006, depth=0.22, matrix=mat_frame)
+                              
+    mat_pad = Matrix.Translation((0, -0.36, -0.015)) @ Matrix.Diagonal((0.025, 0.02, 0.07, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_pad)
+    
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mats['matte'])
+    return obj
+
+def create_scope(mats):
+    obj, mesh = create_mesh_obj("Scope")
+    bm = bmesh.new()
+    
+    mat_mount = Matrix.Translation((0, -0.03, 0.045)) @ Matrix.Diagonal((0.015, 0.03, 0.01, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_mount)
+    
+    mat_body = Matrix.Translation((0, -0.03, 0.07)) @ Matrix.Rotation(-math.pi/2, 4, 'X')
+    bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=24, 
+                          radius1=0.018, radius2=0.018, depth=0.12, matrix=mat_body)
+                          
+    mat_lens_f = Matrix.Translation((0, 0.035, 0.07)) @ Matrix.Rotation(-math.pi/2, 4, 'X')
+    bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=24, 
+                          radius1=0.02, radius2=0.02, depth=0.02, matrix=mat_lens_f)
+                          
+    mat_lens_b = Matrix.Translation((0, -0.095, 0.07)) @ Matrix.Rotation(-math.pi/2, 4, 'X')
+    bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=24, 
+                          radius1=0.02, radius2=0.02, depth=0.015, matrix=mat_lens_b)
+                          
+    bm.to_mesh(mesh)
+    bm.free()
+    
+    obj.data.materials.append(mats['scope'])
+    obj.data.materials.append(mats['glow'])
+    for poly in obj.data.polygons:
+        if poly.center.y > 0.04 or poly.center.y < -0.10:
+            poly.material_index = 1
+    return obj
+
+def create_sights(mats):
+    obj, mesh = create_mesh_obj("IronSights")
+    bm = bmesh.new()
+    
+    mat_f = Matrix.Translation((0, 0.35, 0.045)) @ Matrix.Diagonal((0.008, 0.01, 0.015, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_f)
+    
+    mat_r = Matrix.Translation((0, -0.13, 0.045)) @ Matrix.Diagonal((0.01, 0.01, 0.015, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_r)
+    
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mats['matte'])
+    return obj
+
+# =============================================================================
+# MAIN EXECUTION
+# =============================================================================
+def main():
+    reset_scene()
+    mats = apply_materials()
+    
+    # 1. Buat Receiver sebagai Parent
+    receiver_obj = create_receiver(mats)
+    receiver_obj.name = "Assault_Rifle_Tactical_Receiver"
+    
+    # 2. Kumpulkan part lainnya
+    other_parts = []
+    other_parts.append(create_rail(mats))
+    other_parts.append(create_handguard(mats))
+    other_parts.append(create_barrel(mats))
+    other_parts.append(create_muzzle_brake(mats))
+    other_parts.append(create_magazine(mats))
+    other_parts.append(create_grip(mats))
+    other_parts.append(create_trigger_guard(mats))
+    other_parts.append(create_trigger(mats))
+    other_parts.append(create_stock(mats))
+    other_parts.append(create_scope(mats))
+    other_parts.append(create_sights(mats))
+    
+    # 3. Parent semua komponen ke Receiver
+    for part in other_parts:
+        part.parent = receiver_obj
+    
+    # Set Receiver sebagai objek aktif
+    bpy.context.view_layer.objects.active = receiver_obj
+    receiver_obj.select_set(True)
+    
+    print("SUCCESS: Model 'Assault_Rifle_Tactical' dibuat! Semua part terpisah dan di-parent ke Receiver.")
+
+if __name__ == "__main__":
+    main()

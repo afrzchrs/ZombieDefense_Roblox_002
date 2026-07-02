@@ -1,0 +1,298 @@
+# =============================================================================
+# SCRIPT GENERATOR: TACTICAL LANDMINE (LOW-POLY ROBLOX STYLE)
+# =============================================================================
+# Deskripsi: Men-generate model Ranjau Darat Taktis militer modern.
+# Kompatibilitas: Blender 4.x
+# =============================================================================
+
+import bpy
+import bmesh
+import math
+from mathutils import Matrix
+
+# =============================================================================
+# KONFIGURASI VARIABEL (Mudah Diubah)
+# =============================================================================
+BODY_SIDES = 8                  # Jumlah sisi bodi (8 = Oktagon, 12 = Dodekagon)
+NUM_TRIGGER_PRONGS = 4          # Jumlah duri pemicu (3 atau 4)
+NUM_BOLTS = 8                   # Jumlah baut pengaman
+LED_ENABLED = True              # Mengaktifkan/Mematikan lampu LED
+WARNING_PANEL_ENABLED = True    # Mengaktifkan/Mematikan panel peringatan kuning
+BODY_COLOR = "OLIVE"            # Pilihan warna bodi: "OLIVE" atau "STEEL"
+
+# =============================================================================
+# FUNGSI HELPER & MATERIAL
+# =============================================================================
+def reset_scene():
+    if bpy.context.object and bpy.context.object.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.delete(use_global=False)
+    for mat in bpy.data.materials:
+        bpy.data.materials.remove(mat)
+
+def create_mesh_obj(name):
+    mesh = bpy.data.meshes.new(name)
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    return obj, mesh
+
+def apply_materials():
+    mats = {}
+    
+    # 1. Main Body Color
+    mat_body = bpy.data.materials.new(name="Mat_Body")
+    mat_body.use_nodes = True
+    bsdf_body = mat_body.node_tree.nodes.get("Principled BSDF")
+    if BODY_COLOR == "OLIVE":
+        bsdf_body.inputs['Base Color'].default_value = (0.1, 0.15, 0.05, 1.0) # Olive Drab
+    else:
+        bsdf_body.inputs['Base Color'].default_value = (0.1, 0.1, 0.12, 1.0)  # Steel Grey
+    bsdf_body.inputs['Metallic'].default_value = 0.4
+    bsdf_body.inputs['Roughness'].default_value = 0.8
+    mats['body'] = mat_body
+    
+    # 2. Pressure Plate (Hitam Pekat)
+    mat_plate = bpy.data.materials.new(name="Mat_Plate")
+    mat_plate.use_nodes = True
+    bsdf_plate = mat_plate.node_tree.nodes.get("Principled BSDF")
+    bsdf_plate.inputs['Base Color'].default_value = (0.01, 0.01, 0.01, 1.0)
+    bsdf_plate.inputs['Metallic'].default_value = 0.2
+    bsdf_plate.inputs['Roughness'].default_value = 0.9
+    mats['plate'] = mat_plate
+    
+    # 3. Steel / Metal Details
+    mat_metal = bpy.data.materials.new(name="Mat_Metal")
+    mat_metal.use_nodes = True
+    bsdf_metal = mat_metal.node_tree.nodes.get("Principled BSDF")
+    bsdf_metal.inputs['Base Color'].default_value = (0.2, 0.2, 0.2, 1.0)
+    bsdf_metal.inputs['Metallic'].default_value = 0.9
+    bsdf_metal.inputs['Roughness'].default_value = 0.4
+    mats['metal'] = mat_metal
+    
+    # 4. Warning Markings (Kuning)
+    mat_warn = bpy.data.materials.new(name="Mat_Warning")
+    mat_warn.use_nodes = True
+    bsdf_warn = mat_warn.node_tree.nodes.get("Principled BSDF")
+    bsdf_warn.inputs['Base Color'].default_value = (0.8, 0.6, 0.0, 1.0)
+    bsdf_warn.inputs['Roughness'].default_value = 0.6
+    mats['warning'] = mat_warn
+    
+    # 5. Status LED (Merah Emission)
+    mat_led = bpy.data.materials.new(name="Mat_LED")
+    mat_led.use_nodes = True
+    bsdf_led = mat_led.node_tree.nodes.get("Principled BSDF")
+    bsdf_led.inputs['Base Color'].default_value = (1.0, 0.0, 0.0, 1.0)
+    if 'Emission Color' in bsdf_led.inputs:
+        bsdf_led.inputs['Emission Color'].default_value = (1.0, 0.0, 0.0, 1.0)
+        bsdf_led.inputs['Emission Strength'].default_value = 8.0
+    mats['led'] = mat_led
+    
+    return mats
+
+# =============================================================================
+# FUNGSI PEMBUATAN KOMPONEN
+# =============================================================================
+def create_base(mats):
+    """1. Membuat Bodi Dasar Ranjau (Poligon)."""
+    obj, mesh = create_mesh_obj("Base")
+    bm = bmesh.new()
+    
+    # Silinder utama oktagonal/dodekagonal
+    mat_base = Matrix.Translation((0, 0, 0.04))
+    bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=BODY_SIDES, 
+                          radius1=0.22, radius2=0.22, depth=0.08, matrix=mat_base)
+                          
+    # Cincin pelindung (Ring tipis di sekeliling bodi)
+    mat_ring = Matrix.Translation((0, 0, 0.04))
+    bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=BODY_SIDES, 
+                          radius1=0.23, radius2=0.23, depth=0.04, matrix=mat_ring)
+                          
+    bmesh.ops.bevel(bm, geom=bm.edges, offset=0.005, segments=1, affect='EDGES')
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mats['body'])
+    return obj
+
+def create_pressure_plate(mats):
+    """2. Membuat Plat Pemicu Hitam di tengah."""
+    obj, mesh = create_mesh_obj("PressurePlate")
+    bm = bmesh.new()
+    
+    # Ditempatkan di atas base (Z = 0.08 + 0.01)
+    mat_plate = Matrix.Translation((0, 0, 0.09))
+    bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=16, 
+                          radius1=0.12, radius2=0.12, depth=0.02, matrix=mat_plate)
+                          
+    bmesh.ops.bevel(bm, geom=bm.edges, offset=0.003, segments=1, affect='EDGES')
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mats['plate'])
+    return obj
+
+def create_trigger_prongs(mats):
+    """3. Membuat Duri Pemicu (Mekanisme Ranjau Darat Klasik)."""
+    obj, mesh = create_mesh_obj("TriggerProngs")
+    bm = bmesh.new()
+    
+    prong_radius = 0.08
+    for i in range(NUM_TRIGGER_PRONGS):
+        angle = math.radians(i * (360 / NUM_TRIGGER_PRONGS))
+        x_pos = math.cos(angle) * prong_radius
+        y_pos = math.sin(angle) * prong_radius
+        
+        # Miring sedikit ke arah luar
+        rot_y = math.radians(15) if x_pos > 0 else math.radians(-15) if x_pos < 0 else 0
+        rot_x = math.radians(-15) if y_pos > 0 else math.radians(15) if y_pos < 0 else 0
+        
+        mat_prong = Matrix.Translation((x_pos, y_pos, 0.125)) @ Matrix.Rotation(rot_x, 4, 'X') @ Matrix.Rotation(rot_y, 4, 'Y')
+        bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=6, 
+                              radius1=0.006, radius2=0.002, depth=0.05, matrix=mat_prong)
+                              
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mats['metal'])
+    return obj
+
+def create_safety_bolts(mats):
+    """4. Membuat Baut Pengaman mengelilingi Plat."""
+    obj, mesh = create_mesh_obj("SafetyBolts")
+    bm = bmesh.new()
+    
+    bolt_radius = 0.16
+    for i in range(NUM_BOLTS):
+        angle = math.radians(i * (360 / NUM_BOLTS))
+        x_pos = math.cos(angle) * bolt_radius
+        y_pos = math.sin(angle) * bolt_radius
+        
+        mat_bolt = Matrix.Translation((x_pos, y_pos, 0.085))
+        bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=6, 
+                              radius1=0.01, radius2=0.01, depth=0.01, matrix=mat_bolt)
+                              
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mats['metal'])
+    return obj
+
+def create_status_led(mats):
+    """5. Membuat Indikator LED Aktif."""
+    if not LED_ENABLED: return None
+    
+    obj, mesh = create_mesh_obj("StatusLED")
+    bm = bmesh.new()
+    
+    # Ditempatkan di ujung sumbu Y
+    mat_led = Matrix.Translation((0, 0.235, 0.04)) @ Matrix.Diagonal((0.015, 0.015, 0.015, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_led)
+    
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mats['led'])
+    return obj
+
+def create_warning_markings(mats):
+    """6. Membuat Panel Peringatan Kuning."""
+    if not WARNING_PANEL_ENABLED: return None
+    
+    obj, mesh = create_mesh_obj("WarningMarkings")
+    bm = bmesh.new()
+    
+    # 2 Strip kuning di atas base
+    for x_pos in [-0.15, 0.15]:
+        mat_mark = Matrix.Translation((x_pos, 0, 0.082)) @ Matrix.Diagonal((0.02, 0.1, 0.002, 1.0))
+        bmesh.ops.create_cube(bm, size=1.0, matrix=mat_mark)
+        
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mats['warning'])
+    return obj
+
+def create_side_armor(mats):
+    """7. Membuat Panel Segmen Armor di sisi luar."""
+    obj, mesh = create_mesh_obj("SideArmor")
+    bm = bmesh.new()
+    
+    armor_radius = 0.225
+    for i in range(BODY_SIDES):
+        angle = math.radians(i * (360 / BODY_SIDES))
+        x_pos = math.cos(angle) * armor_radius
+        y_pos = math.sin(angle) * armor_radius
+        
+        # Orientasi balok mengikuti putaran poligon bodi
+        mat_armor = Matrix.Translation((x_pos, y_pos, 0.04)) @ Matrix.Rotation(angle, 4, 'Z') @ Matrix.Diagonal((0.015, 0.08, 0.06, 1.0))
+        bmesh.ops.create_cube(bm, size=1.0, matrix=mat_armor)
+        
+    bmesh.ops.bevel(bm, geom=bm.edges, offset=0.003, segments=1, affect='EDGES')
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mats['metal'])
+    return obj
+
+def create_activation_module(mats):
+    """8. Modul Aktivasi Elektronik (Tactical Smart Mine)."""
+    obj, mesh = create_mesh_obj("ActivationModule")
+    bm = bmesh.new()
+    
+    # Kotak Modul di sisi X positif
+    mat_box = Matrix.Translation((0.24, 0, 0.05)) @ Matrix.Diagonal((0.04, 0.08, 0.05, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_box)
+    
+    # Antena Pendek
+    mat_ant = Matrix.Translation((0.24, 0.02, 0.09))
+    bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=6, 
+                          radius1=0.004, radius2=0.002, depth=0.06, matrix=mat_ant)
+                          
+    # Tombol Aktivasi
+    mat_btn = Matrix.Translation((0.24, -0.02, 0.08))
+    bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=8, 
+                          radius1=0.008, radius2=0.008, depth=0.01, matrix=mat_btn)
+                          
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mats['body'])
+    return obj
+
+# =============================================================================
+# MAIN EXECUTION
+# =============================================================================
+def main():
+    reset_scene()
+    mats = apply_materials()
+    
+    parts = []
+    
+    # Eksekusi Partisi Ranjau
+    parts.append(create_base(mats))
+    parts.append(create_pressure_plate(mats))
+    parts.append(create_trigger_prongs(mats))
+    parts.append(create_safety_bolts(mats))
+    parts.append(create_side_armor(mats))
+    parts.append(create_activation_module(mats))
+    
+    # Opsional Details
+    led_obj = create_status_led(mats)
+    if led_obj: parts.append(led_obj)
+        
+    warn_obj = create_warning_markings(mats)
+    if warn_obj: parts.append(warn_obj)
+    
+    # Penggabungan (Join)
+    basis_obj = parts[0]
+    bpy.context.view_layer.objects.active = basis_obj
+    for p in parts:
+        p.select_set(True)
+    bpy.ops.object.join()
+    
+    # Finalisasi Objek
+    final_mine = bpy.context.view_layer.objects.active
+    final_mine.name = "Tactical_Landmine"
+    
+    # Titik pusat diatur ke dasar jaring agar mudah ditempatkan menempel lantai
+    bpy.ops.object.origin_set(type='ORIGIN_CENTER_OF_VOLUME', center='BOUNDS')
+    final_mine.location = (0, 0, final_mine.dimensions.z / 2)
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    
+    print(f"SUCCESS: Model 'Tactical_Landmine' ({BODY_COLOR}, {BODY_SIDES}-Sides) berhasil dibuat!")
+
+if __name__ == "__main__":
+    main()

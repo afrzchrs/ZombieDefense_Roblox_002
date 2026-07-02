@@ -1,0 +1,249 @@
+# =============================================================================
+# SCRIPT GENERATOR: ROBLOX-STYLE BLOCKY MINIGUN (SEPARATED PARTS)
+# =============================================================================
+
+import bpy
+import bmesh
+import math
+from mathutils import Matrix
+
+# =============================================================================
+# FUNGSI HELPER UTAMA
+# =============================================================================
+def reset_scene():
+    if bpy.context.object and bpy.context.object.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.delete(use_global=False)
+    for mat in bpy.data.materials:
+        bpy.data.materials.remove(mat)
+
+def create_mesh_obj(name):
+    mesh = bpy.data.meshes.new(name)
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    return obj, mesh
+
+def apply_boolean_difference(target_obj, cutter_obj):
+    bpy.context.view_layer.objects.active = target_obj
+    target_obj.select_set(True)
+    mod = target_obj.modifiers.new(name="AutoBool", type='BOOLEAN')
+    mod.operation = 'DIFFERENCE'
+    mod.object = cutter_obj
+    mod.solver = 'EXACT'
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+    bpy.data.objects.remove(cutter_obj, do_unlink=True)
+
+def apply_materials():
+    mats = {}
+    
+    mat_red = bpy.data.materials.new(name="Mat_Body_Red")
+    mat_red.use_nodes = True
+    bsdf_red = mat_red.node_tree.nodes.get("Principled BSDF")
+    bsdf_red.inputs['Base Color'].default_value = (0.5, 0.05, 0.05, 1.0)
+    bsdf_red.inputs['Roughness'].default_value = 0.8
+    mats['red'] = mat_red
+    
+    mat_darkblue = bpy.data.materials.new(name="Mat_DarkBlue")
+    mat_darkblue.use_nodes = True
+    bsdf_darkblue = mat_darkblue.node_tree.nodes.get("Principled BSDF")
+    bsdf_darkblue.inputs['Base Color'].default_value = (0.02, 0.05, 0.1, 1.0)
+    bsdf_darkblue.inputs['Roughness'].default_value = 0.9
+    mats['darkblue'] = mat_darkblue
+    
+    mat_grey = bpy.data.materials.new(name="Mat_Barrel_Grey")
+    mat_grey.use_nodes = True
+    bsdf_grey = mat_grey.node_tree.nodes.get("Principled BSDF")
+    bsdf_grey.inputs['Base Color'].default_value = (0.4, 0.4, 0.4, 1.0)
+    bsdf_grey.inputs['Metallic'].default_value = 0.5
+    bsdf_grey.inputs['Roughness'].default_value = 0.5
+    mats['grey'] = mat_grey
+    
+    return mats
+
+# =============================================================================
+# FUNGSI PEMBUATAN KOMPONEN MINIGUN
+# =============================================================================
+def create_motor_housing(mats):
+    """Body utama merah dengan tambahan panel detail mekanis."""
+    obj, mesh = create_mesh_obj("MotorHousing")
+    bm = bmesh.new()
+    
+    # 1. Base Block (Inti)
+    mat_body = Matrix.Translation((0, 0, 0)) @ Matrix.Diagonal((0.28, 0.5, 0.28, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_body)
+    
+    # 2. Panel Samping (Kiri & Kanan) untuk tekstur berundak
+    mat_side = Matrix.Translation((0, 0, 0)) @ Matrix.Diagonal((0.32, 0.35, 0.2, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_side)
+    
+    # 3. Panel Atas & Bawah
+    mat_top = Matrix.Translation((0, 0, 0)) @ Matrix.Diagonal((0.2, 0.4, 0.32, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_top)
+    
+    bmesh.ops.bevel(bm, geom=bm.edges, offset=0.005, segments=1, affect='EDGES')
+    
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mats['red'])
+    return obj
+
+def create_rotary_barrels(mats):
+    """6 Laras abu-abu."""
+    obj, mesh = create_mesh_obj("Barrels")
+    bm = bmesh.new()
+    
+    y_center = 0.83  
+    
+    for i in range(6):
+        angle = math.radians(i * 60)
+        x_pos = math.cos(angle) * 0.09
+        z_pos = math.sin(angle) * 0.09
+        mat_barrel = Matrix.Translation((x_pos, y_center, z_pos)) @ Matrix.Diagonal((0.04, 1.0, 0.04, 1.0))
+        bmesh.ops.create_cube(bm, size=1.0, matrix=mat_barrel)
+    
+    mat_axle = Matrix.Translation((0, y_center, 0)) @ Matrix.Diagonal((0.06, 1.0, 0.06, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_axle)
+        
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mats['grey'])
+    return obj
+
+def create_barrel_rings(mats):
+    """3 Cincin Biru Gelap (Pangkal, Tengah, Ujung)."""
+    obj, mesh = create_mesh_obj("BarrelRings")
+    bm = bmesh.new()
+    
+    # Pangkal Laras
+    mat_cap = Matrix.Translation((0, 0.29, 0)) @ Matrix.Diagonal((0.32, 0.08, 0.32, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_cap)
+    
+    # Ring Tengah dan Ujung Laras (Muzzle)
+    ring_positions = [0.7, 1.05, 1.3] 
+    for y_pos in ring_positions:
+        mat_ring = Matrix.Translation((0, y_pos, 0)) @ Matrix.Diagonal((0.26, 0.08, 0.26, 1.0))
+        bmesh.ops.create_cube(bm, size=1.0, matrix=mat_ring)
+                              
+    bm.to_mesh(mesh)
+    bm.free()
+    
+    # Boolean Cutter
+    cut_obj, cut_mesh = create_mesh_obj("RingCutter")
+    bm_cut = bmesh.new()
+    
+    for y_pos in ring_positions:
+        for i in range(6):
+            angle = math.radians(i * 60)
+            x_pos = math.cos(angle) * 0.09
+            z_pos = math.sin(angle) * 0.09
+            mat_cut = Matrix.Translation((x_pos, y_pos, z_pos)) @ Matrix.Diagonal((0.045, 0.12, 0.045, 1.0))
+            bmesh.ops.create_cube(bm_cut, size=1.0, matrix=mat_cut)
+            
+        mat_cut_c = Matrix.Translation((0, y_pos, 0)) @ Matrix.Diagonal((0.065, 0.12, 0.065, 1.0))
+        bmesh.ops.create_cube(bm_cut, size=1.0, matrix=mat_cut_c)
+        
+    bm_cut.to_mesh(cut_mesh)
+    bm_cut.free()
+    
+    apply_boolean_difference(obj, cut_obj)
+    obj.data.materials.append(mats['darkblue'])
+    return obj
+
+def create_top_handle(mats):
+    """Gagang Atas."""
+    obj, mesh = create_mesh_obj("TopHandle")
+    bm = bmesh.new()
+    
+    mat_top = Matrix.Translation((0, 0.0, 0.23)) @ Matrix.Diagonal((0.04, 0.3, 0.04, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_top)
+    
+    mat_leg_f = Matrix.Translation((0, 0.13, 0.19)) @ Matrix.Diagonal((0.04, 0.04, 0.08, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_leg_f)
+    
+    mat_leg_b = Matrix.Translation((0, -0.13, 0.19)) @ Matrix.Diagonal((0.04, 0.04, 0.08, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_leg_b)
+    
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mats['darkblue'])
+    return obj
+
+def create_rear_grips(mats):
+    """Spade Grips Belakang."""
+    obj, mesh = create_mesh_obj("RearGrips")
+    bm = bmesh.new()
+    
+    mat_base = Matrix.Translation((0, -0.27, 0)) @ Matrix.Diagonal((0.2, 0.04, 0.15, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_base)
+    
+    for x_pos in [-0.15, 0.15]:
+        mat_ext = Matrix.Translation((x_pos, -0.34, 0)) @ Matrix.Diagonal((0.04, 0.1, 0.04, 1.0))
+        bmesh.ops.create_cube(bm, size=1.0, matrix=mat_ext)
+        
+        mat_grip = Matrix.Translation((x_pos, -0.37, 0.05)) @ Matrix.Diagonal((0.04, 0.04, 0.2, 1.0))
+        bmesh.ops.create_cube(bm, size=1.0, matrix=mat_grip)
+        
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mats['darkblue'])
+    return obj
+
+def create_mechanical_details(mats):
+    """Tambahan Detail: Ammo Feed & Trigger."""
+    obj, mesh = create_mesh_obj("MechanicalDetails")
+    bm = bmesh.new()
+    
+    # 1. Ammo Feed Port (Biru Gelap) di sisi kiri (-X)
+    mat_feed = Matrix.Translation((-0.18, 0.0, 0.0)) @ Matrix.Diagonal((0.08, 0.2, 0.16, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=mat_feed)
+    
+    bm.to_mesh(mesh)
+    bm.free()
+    obj.data.materials.append(mats['darkblue'])
+    
+    # 2. Trigger Block (Abu-abu) di antara grip
+    trig_obj, trig_mesh = create_mesh_obj("TriggerBlock")
+    bm_trig = bmesh.new()
+    
+    mat_trig = Matrix.Translation((0, -0.3, 0.05)) @ Matrix.Diagonal((0.08, 0.06, 0.08, 1.0))
+    bmesh.ops.create_cube(bm_trig, size=1.0, matrix=mat_trig)
+    
+    bm_trig.to_mesh(trig_mesh)
+    bm_trig.free()
+    trig_obj.data.materials.append(mats['grey'])
+    
+    return [obj, trig_obj]
+
+# =============================================================================
+# MAIN EXECUTION
+# =============================================================================
+def main():
+    reset_scene()
+    mats = apply_materials()
+    
+    # 1. Buat bodi utama terlebih dahulu
+    motor_housing = create_motor_housing(mats)
+    
+    # 2. Kumpulkan part lainnya
+    other_parts = []
+    other_parts.append(create_rotary_barrels(mats))
+    other_parts.append(create_barrel_rings(mats))
+    other_parts.append(create_top_handle(mats))
+    other_parts.append(create_rear_grips(mats))
+    other_parts.extend(create_mechanical_details(mats))
+    
+    # 3. Jadikan MotorHousing sebagai Parent untuk semua part lain
+    # Ini mencegah penggabungan mesh (join), sehingga masing-masing part
+    # tetap bisa di-select dan diwarnai sendiri di Edit Mode / Material Properties.
+    for part in other_parts:
+        part.parent = motor_housing
+    
+    # Set MotorHousing sebagai objek aktif di akhir script
+    bpy.context.view_layer.objects.active = motor_housing
+    motor_housing.select_set(True)
+    
+    print("SUCCESS: Model 'Minigun_Blocky' telah dibuat! Semua part terpisah dan di-parent ke MotorHousing.")
+
+if __name__ == "__main__":
+    main()
