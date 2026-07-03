@@ -1,3 +1,4 @@
+-- Referensi Servis
 local ServerStorage = game:GetService("ServerStorage")
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -12,6 +13,7 @@ local dataSisaZombie = ReplicatedStorage:WaitForChild("SisaZombie")
 
 Players.CharacterAutoLoads = false
 
+
 local base = workspace:WaitForChild("BaseTarget")
 local baseHpValue = base:WaitForChild("HP")
 local safeRadiusValue = base:WaitForChild("SafeRadius")
@@ -21,15 +23,17 @@ local SlowZombieTemplate = ServerStorage:WaitForChild("SlowZombie")
 local TankZombieTemplate = ServerStorage:WaitForChild("TankZombie") 
 local FastZombieTemplate = ServerStorage:WaitForChild("FastZombie") 
 local TitanZombieTemplate = ServerStorage:WaitForChild("TitanZombie")
-local currentWave = 5
+local bossZombieTemplate = ServerStorage:WaitForChild("BOSSZombie")
+local currentWave = 0
 local isWaveActive = false
 local aliveZombies = 0
 local isGameOver = false
 local INTERMISSION_TIME = 15
 local uang = 0
+local isBossActive = false
 
 local spawnRadiusMax = 400
-local BATCH_SIZE = 20            -
+local BATCH_SIZE = 20            
 local BATCH_DELAY = 3
 
 local skipEvent = ReplicatedStorage:WaitForChild("SkipWaveEvent")
@@ -46,6 +50,7 @@ skipEvent.OnServerEvent:Connect(function(player)
 	print(player.Name .. " telah menekan Skip Wave!")
 end)
 
+
 local BASE_KILL_REWARD = 10
 local WAVE_MULTIPLIER = 0.5
 
@@ -53,11 +58,15 @@ local function hitungDanBerikanHadiah(p, finalWave)
 	local killValue = 0
 	local totalHadiah = 0
 
+
 	local leaderstats = p:FindFirstChild("leaderstats")
 	if leaderstats and leaderstats:FindFirstChild("Kill") then
 		killValue = leaderstats.Kill.Value
-		leaderstats.Kill.Value = 0 
+		leaderstats.Kill.Value = 0
 	end
+
+
+	totalHadiah = math.floor((killValue * BASE_KILL_REWARD) * (1 + (finalWave * WAVE_MULTIPLIER)))
 
 	local lobbyData = p:FindFirstChild("LobbyData")
 	if lobbyData and lobbyData:FindFirstChild("Kredit") then
@@ -66,12 +75,14 @@ local function hitungDanBerikanHadiah(p, finalWave)
 	else
 		warn("[WARNING] Folder LobbyData belum ada untuk " .. p.Name .. ", tapi UI Game Over akan tetap dimunculkan.")
 	end
-
 	eventGameOver:FireClient(p, killValue, finalWave, totalHadiah)
 end
 
+
 local function checkGameOver()
+
 	if isGameOver then return end 
+
 
 	if baseHpValue.Value > 0 then return end 
 
@@ -101,7 +112,9 @@ baseHpValue.Changed:Connect(function()
 	end
 end)
 
+
 Players.PlayerRemoving:Connect(function(player)
+
 	if not isGameOver then
 		local waveSaatIni = 5 
 		hitungDanBerikanHadiah(player, waveSaatIni)
@@ -128,9 +141,8 @@ local function handlePlayerDeath(player)
 		return 
 	end
 
-
 	local respawnTime = 1 + currentWave
-	respawnEvent:FireClient(player, respawnTime) -- Memunculkan DeathUI
+	respawnEvent:FireClient(player, respawnTime) 
 	gameStatus.Value = player.Name .. " MATI! (" .. respawnTime .. "s)"
 
 	task.wait(respawnTime)
@@ -142,8 +154,8 @@ local function handlePlayerDeath(player)
 	end
 end
 
-local function setupPlayer(player)
 
+local function setupPlayer(player)
 	local statusSenjata = Instance.new("StringValue")
 	statusSenjata.Name = "SenjataSaatIni"
 	statusSenjata.Value = "Pistol"
@@ -177,7 +189,7 @@ local function setupPlayer(player)
 	
 	local wallet = player:WaitForChild("Wallet")
 	local uang = wallet:WaitForChild("Uang")
-	uang.Value = 500
+	uang.Value = 10000
 
 
 	if player.Character then
@@ -203,7 +215,7 @@ local ZOMBIE_TYPES = {
 	{
 		Name = "Slow",
 		BaseHP = 100,
-		BaseSpeed = 9,
+		BaseSpeed = 10,
 		BaseDamage = 2,
 		Scale = 1,      
 		BaseWeight = 50,
@@ -221,7 +233,7 @@ local ZOMBIE_TYPES = {
 	{
 		Name = "Tank",
 		BaseHP = 300,    
-		BaseSpeed = 12,     
+		BaseSpeed = 13,     
 		BaseDamage = 5,   
 		Scale = 1.65,       
 		BaseWeight = 5, 
@@ -230,7 +242,7 @@ local ZOMBIE_TYPES = {
 	{
 		Name = "Runner",
 		BaseHP = 100,     
-		BaseSpeed = 18,    
+		BaseSpeed = 18.5,    
 		BaseDamage = 6,
 		Scale = 0.95,      
 		BaseWeight = 5,
@@ -239,7 +251,7 @@ local ZOMBIE_TYPES = {
 	{
 		Name = "Titan", 
 		BaseHP = 700,    
-		BaseSpeed = 15.5,    
+		BaseSpeed = 15.8,    
 		BaseDamage = 12,   
 		Scale = 2.2,       
 		BaseWeight = 0,      
@@ -468,33 +480,90 @@ local function startWave(waveNumber)
 	end)
 end
 
+local function spawnBoss(waveSaatIni)
+	isBossActive = true
+
+	local boss = bossZombieTemplate:Clone()
+	local humanoid = boss:WaitForChild("Humanoid")
+
+	local multiplier = waveSaatIni / 10 
+	local bossHealth = 50000 * multiplier
+	local hadiah = 1000 * multiplier
+
+	local scaleMultiplier = 1 + (multiplier * 0.5) 
+	boss:ScaleTo(scaleMultiplier)
+
+	local bossDamage = 25 + (25 * multiplier)
+	boss:SetAttribute("AttackDamage", bossDamage)
+
+	local spawnRadius = safeRadiusValue.Value + (15 * scaleMultiplier) 
+	local randomAngle = math.rad(math.random(0, 360))
+
+	local basePos = typeof(base) == "Instance" and base:IsA("Model") and base:GetPivot().Position or base.Position
+
+	local spawnX = basePos.X + (math.cos(randomAngle) * spawnRadius)
+	local spawnZ = basePos.Z + (math.sin(randomAngle) * spawnRadius)
+	local spawnY = basePos.Y + (10 * scaleMultiplier) 
+
+	boss:PivotTo(CFrame.new(spawnX, spawnY, spawnZ)) 
+	boss.Parent = workspace
+
+	aliveZombies = aliveZombies + 1
+	local dataSisaZombie = game:GetService("ReplicatedStorage"):FindFirstChild("SisaZombie")
+	if dataSisaZombie then
+		dataSisaZombie.Value = aliveZombies
+	end
+
+
+	humanoid.Died:Connect(function()
+		if sudahMati then return end 
+		sudahMati = true 
+
+		isBossActive = false
+
+		-- Kurangi angka UI Zombie secara aman
+		aliveZombies = aliveZombies - 1
+		if aliveZombies < 0 then aliveZombies = 0 end
+		if dataSisaZombie then dataSisaZombie.Value = aliveZombies end
+
+		local hadiah = 1000 * multiplier
+
+		for _, player in ipairs(game.Players:GetPlayers()) do
+			local leaderstats = player:FindFirstChild("leaderstats")
+			if leaderstats and leaderstats:FindFirstChild("Uang") then
+				leaderstats.Uang.Value = leaderstats.Uang.Value + hadiah 
+			end
+		end
+		print("BOSS WAVE " .. waveSaatIni .. " DIKALAHKAN!")
+	end)
+
+	return boss
+end
 
 task.spawn(function()
 	gameStatus.Value = "MENUNGGU PEMAIN..."
 	task.wait(5) 
 
 	while not isGameOver do
-		if currentWave > 0 then
-
-			for i = INTERMISSION_TIME, 1, -1 do
-				if isGameOver or ReplicatedStorage.SkipActive.Value == true then 
-					break 
-				end
-
-				if baseHpValue.Value <= 0 then
-					local baseStatus = game:GetService("ReplicatedStorage"):WaitForChild("BaseStatus")
-					baseStatus.Value = "Hancur"
-					
-					gameStatus.Value = "BASE HANCUR! PREPARATION: " .. i .. "s"
-				else
-					gameStatus.Value = "PREPARATION: " .. i .. "s"
-				end
-
-				task.wait(1)
+		for i = INTERMISSION_TIME, 1, -1 do
+			if isGameOver or ReplicatedStorage.SkipActive.Value == true then 
+				break 
 			end
+
+			if baseHpValue.Value <= 0 then
+				local baseStatus = game:GetService("ReplicatedStorage"):WaitForChild("BaseStatus")
+				baseStatus.Value = "Hancur"
+				gameStatus.Value = "BASE HANCUR! PREPARATION: " .. i .. "s"
+			else
+				gameStatus.Value = "PREPARATION: " .. i .. "s"
+			end
+			task.wait(1)
 		end
 
+		ReplicatedStorage.SkipActive.Value = false
+
 		if isGameOver then break end
+
 		currentWave += 1 
 		startWave(currentWave)
 
@@ -505,11 +574,9 @@ task.spawn(function()
 				if baseHpValue.Value <= 0 then
 					baseHpValue.Value = 0
 					gameStatus.Value = "Wave " .. currentWave .. " | BASE HANCUR!" 
-					
+
 					local baseStatus = game:GetService("ReplicatedStorage"):WaitForChild("BaseStatus")
 					baseStatus.Value = "Hancur"
-					
-					local gameStatus = game:GetService("ReplicatedStorage"):WaitForChild("GameStatus")
 					gameStatus.Value = "BASE HANCUR !"
 				else
 					gameStatus.Value = "WAVE " .. currentWave .. " has Started"
@@ -525,5 +592,38 @@ task.spawn(function()
 			end
 
 		until not isWaveActive or isGameOver
+
+
+		if not isGameOver then 
+			gameStatus.Value = "WARNING: BOSS APPROACHING!"
+			task.wait(3) 
+
+			if not isGameOver then
+				gameStatus.Value = "BOSS PHASE - WAVE " .. currentWave .. "!"
+
+				local currentBoss = spawnBoss(currentWave) 
+				repeat 
+					task.wait(1) 
+
+					if baseHpValue.Value <= 0 then
+						checkGameOver()
+					end
+
+					if currentBoss == nil or currentBoss.Parent == nil or currentBoss:FindFirstChild("Humanoid") == nil then
+						isBossActive = false
+						aliveZombies = aliveZombies - 1
+						if aliveZombies < 0 then aliveZombies = 0 end
+						local dataSisaZombie = game:GetService("ReplicatedStorage"):FindFirstChild("SisaZombie")
+						if dataSisaZombie then dataSisaZombie.Value = aliveZombies end
+					end
+
+				until not isBossActive or isGameOver
+
+				if not isGameOver then
+					gameStatus.Value = "BOSS DEFEATED!"
+					task.wait(3) 
+				end
+			end
+		end
 	end
 end)
